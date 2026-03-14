@@ -134,9 +134,27 @@ export async function createArticle(data: {
   word_count?: number;
   reading_time_minutes?: number;
 }) {
+  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  // Explicitly set all fields — Drizzle schema defaults like "(datetime('now'))"
+  // are sent as literal strings to Turso, not as SQL expressions
   await db.insert(articles).values({
-    ...data,
-    updated_at: new Date().toISOString(),
+    blog_id: data.blog_id,
+    title: data.title,
+    slug: data.slug,
+    content: data.content ?? null,
+    hero_image: data.hero_image ?? null,
+    author: null,
+    excerpt: data.excerpt ?? null,
+    meta_description: data.meta_description ?? null,
+    status: data.status ?? "draft",
+    publish_date: data.publish_date ?? null,
+    has_affiliate_links: data.has_affiliate_links ?? false,
+    affiliate_tag: data.affiliate_tag ?? null,
+    tags: data.tags ?? null,
+    word_count: data.word_count ?? null,
+    reading_time_minutes: data.reading_time_minutes ?? null,
+    created_at: now,
+    updated_at: now,
   });
   // .returning() is unreliable on Turso/libSQL in serverless — SELECT instead
   const rows = await db
