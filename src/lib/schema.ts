@@ -50,7 +50,7 @@ export const articles = sqliteTable(
   (table) => [
     index("idx_articles_blog_status").on(table.blog_id, table.status),
     index("idx_articles_blog_published").on(table.blog_id, table.publish_date),
-    uniqueIndex("idx_articles_slug").on(table.slug),
+    uniqueIndex("idx_articles_slug").on(table.blog_id, table.slug),
   ]
 );
 

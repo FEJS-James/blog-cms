@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and, sql, desc, asc } from "drizzle-orm";
+import { eq, and, ne, sql, desc, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { blogs, articles } from "@/lib/schema";
 import { authenticateRequest } from "@/lib/auth";
@@ -149,11 +149,13 @@ export async function GET(
 
   const { status, tag, limit, offset, orderBy, order } = parsed.data;
 
-  // Build conditions
+  // Build conditions — exclude deleted by default
   const conditions = [eq(articles.blog_id, blog.id)];
 
   if (status) {
     conditions.push(eq(articles.status, status));
+  } else {
+    conditions.push(ne(articles.status, "deleted"));
   }
 
   // For tag filtering, we search within the JSON array stored as text
