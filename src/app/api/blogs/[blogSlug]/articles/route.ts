@@ -7,6 +7,7 @@ import {
   createArticleSchema,
   listArticlesQuerySchema,
 } from "@/lib/validation";
+import { triggerCloudflareRebuild } from "@/lib/cloudflare";
 
 // ── POST /api/blogs/[blogSlug]/articles — Create article ───────────────────────
 
@@ -103,6 +104,9 @@ export async function POST(
     .returning();
 
   const created = result[0];
+
+  // Fire-and-forget: trigger Cloudflare Pages rebuild
+  triggerCloudflareRebuild(blogSlug);
 
   return NextResponse.json(
     { success: true, data: formatArticle(created) },

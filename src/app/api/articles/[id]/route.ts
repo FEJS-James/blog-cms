@@ -1,7 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getArticleById, updateArticle, deleteArticle } from "@/lib/queries";
+import { db } from "@/lib/db";
+import { blogs } from "@/lib/schema";
+import { eq } from "drizzle-orm";
+import { triggerCloudflareRebuild } from "@/lib/cloudflare";
 
 type RouteParams = { params: Promise<{ id: string }> };
+
+/**
+ * Look up the blog slug for a given blog_id.
+ * Returns the slug string or null if not found.
+ */
+async function getBlogSlugById(blogId: number): Promise<string | null> {
+  const result = await db
+    .select({ slug: blogs.slug })
+    .from(blogs)
+    .where(eq(blogs.id, blogId))
+    .limit(1);
+  return result[0]?.slug ?? null;
+}
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -33,6 +50,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
     }
 
+    // Fire-and-forget: trigger Cloudflare Pages rebuild
+    const blogSlug = await getBlogSlugById(article.blog_id);
+    if (blogSlug) {
+      triggerCloudflareRebuild(blogSlug);
+    }
+
     return NextResponse.json(article);
   } catch (error) {
     console.error("PUT /api/articles/[id] error:", error);
@@ -46,10 +69,23 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
+
+    // Get the article first so we can find its blog
+    const existing = await getArticleById(Number(id));
+    if (!existing) {
+      return NextResponse.json({ error: "Article not found" }, { status: 404 });
+    }
+
     const result = await deleteArticle(Number(id));
 
     if (!result.length) {
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
+    }
+
+    // Fire-and-forget: trigger Cloudflare Pages rebuild
+    const blogSlug = await getBlogSlugById(existing.blog_id);
+    if (blogSlug) {
+      triggerCloudflareRebuild(blogSlug);
     }
 
     return NextResponse.json({ success: true });
