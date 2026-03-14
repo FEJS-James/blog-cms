@@ -32,7 +32,6 @@ export async function getBlogStats() {
 
 export type ArticleFilters = {
   blogId?: number;
-  blogSlug?: string;
   status?: string;
   search?: string;
   sortBy?: "date" | "title";

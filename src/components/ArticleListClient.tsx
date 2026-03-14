@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import Link from "next/link";
 
 type ArticleItem = {
@@ -73,10 +73,17 @@ export function ArticleListClient({
     []
   );
 
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
   const updateFilter = (key: string, value: string | number) => {
     const newFilters = { ...filters, [key]: value, page: 1 };
     setFilters(newFilters);
-    fetchArticles(newFilters);
+    if (key === "search") {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => fetchArticles(newFilters), 300);
+    } else {
+      fetchArticles(newFilters);
+    }
   };
 
   const goToPage = (page: number) => {
@@ -153,7 +160,7 @@ export function ArticleListClient({
             className="bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-zinc-500"
           >
             <option value={0}>All Blogs</option>
-            {blogs.map((b) => (
+            {(Array.isArray(blogs) ? blogs : []).map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
               </option>
@@ -235,7 +242,7 @@ export function ArticleListClient({
                 </td>
               </tr>
             ) : (
-              data.items.map((article) => (
+              (Array.isArray(data.items) ? data.items : []).map((article) => (
                 <tr
                   key={article.id}
                   className="hover:bg-zinc-800/50 transition-colors"

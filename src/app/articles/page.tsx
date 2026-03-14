@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getArticles, getAllBlogs } from "@/lib/queries";
 import Link from "next/link";
 import { ArticleListClient } from "@/components/ArticleListClient";
@@ -51,7 +53,7 @@ export default async function ArticlesPage({ searchParams }: PageProps) {
 
       <ArticleListClient
         initialData={result}
-        blogs={blogs.map((b) => ({ id: b.id, name: b.name, slug: b.slug }))}
+        blogs={(Array.isArray(blogs) ? blogs : []).map((b) => ({ id: b.id, name: b.name, slug: b.slug }))}
       />
     </div>
   );

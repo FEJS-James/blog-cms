@@ -28,7 +28,7 @@ export default async function EditArticlePage({ params }: PageProps) {
     <div>
       <h1 className="text-2xl font-bold text-white mb-6">Edit Article</h1>
       <ArticleEditor
-        blogs={blogs.map((b) => ({ id: b.id, name: b.name, slug: b.slug }))}
+        blogs={(Array.isArray(blogs) ? blogs : []).map((b) => ({ id: b.id, name: b.name, slug: b.slug }))}
         article={{
           id: article.id,
           blog_id: article.blog_id,

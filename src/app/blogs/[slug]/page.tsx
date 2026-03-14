@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getBlogBySlug, getArticles } from "@/lib/queries";
 import { notFound } from "next/navigation";
 import Link from "next/link";

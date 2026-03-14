@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import { getAllBlogs, getBlogStats } from "@/lib/queries";
 
@@ -11,7 +13,7 @@ export default async function DashboardPage() {
     // DB not connected — show empty state
   }
 
-  const statsMap = new Map(statsData.map((s) => [s.blog_id, s]));
+  const statsMap = new Map((Array.isArray(statsData) ? statsData : []).map((s) => [s.blog_id, s]));
 
   const totalArticles = statsData.reduce((sum, s) => sum + (s.total ?? 0), 0);
   const totalPublished = statsData.reduce((sum, s) => sum + (s.published ?? 0), 0);
@@ -42,7 +44,7 @@ export default async function DashboardPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {blogsData.map((blog) => {
+          {(Array.isArray(blogsData) ? blogsData : []).map((blog) => {
             const stats = statsMap.get(blog.id);
             return (
               <Link

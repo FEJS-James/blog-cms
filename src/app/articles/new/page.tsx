@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getAllBlogs } from "@/lib/queries";
 import { ArticleEditor } from "@/components/ArticleEditor";
 
@@ -14,7 +16,7 @@ export default async function NewArticlePage() {
     <div>
       <h1 className="text-2xl font-bold text-white mb-6">New Article</h1>
       <ArticleEditor
-        blogs={blogs.map((b) => ({ id: b.id, name: b.name, slug: b.slug }))}
+        blogs={(Array.isArray(blogs) ? blogs : []).map((b) => ({ id: b.id, name: b.name, slug: b.slug }))}
       />
     </div>
   );

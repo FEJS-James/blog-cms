@@ -255,7 +255,7 @@ export function ArticleEditor({
             className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-zinc-500"
           >
             <option value={0}>Select a blog...</option>
-            {blogs.map((b) => (
+            {(Array.isArray(blogs) ? blogs : []).map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
               </option>
