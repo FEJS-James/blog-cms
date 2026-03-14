@@ -80,7 +80,7 @@ export async function POST(
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
-  const result = await db
+  await db
     .insert(articles)
     .values({
       blog_id: blog.id,
@@ -100,10 +100,16 @@ export async function POST(
       reading_time_minutes: readingTimeMinutes,
       created_at: now,
       updated_at: now,
-    })
-    .returning();
+    });
 
-  const created = result[0];
+  // .returning() is unreliable on Turso/libSQL in serverless — SELECT instead
+  const createdRows = await db
+    .select()
+    .from(articles)
+    .where(and(eq(articles.blog_id, blog.id), eq(articles.slug, input.slug)))
+    .limit(1);
+
+  const created = createdRows[0];
 
   // Fire-and-forget: trigger Cloudflare Pages rebuild
   triggerCloudflareRebuild(blogSlug);

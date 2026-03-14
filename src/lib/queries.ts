@@ -134,11 +134,17 @@ export async function createArticle(data: {
   word_count?: number;
   reading_time_minutes?: number;
 }) {
-  const result = await db.insert(articles).values({
+  await db.insert(articles).values({
     ...data,
     updated_at: new Date().toISOString(),
-  }).returning();
-  return result[0];
+  });
+  // .returning() is unreliable on Turso/libSQL in serverless — SELECT instead
+  const rows = await db
+    .select()
+    .from(articles)
+    .where(and(eq(articles.blog_id, data.blog_id), eq(articles.slug, data.slug)))
+    .limit(1);
+  return rows[0];
 }
 
 export async function updateArticle(
@@ -160,18 +166,21 @@ export async function updateArticle(
     reading_time_minutes: number;
   }>
 ) {
-  const result = await db
+  await db
     .update(articles)
     .set({ ...data, updated_at: new Date().toISOString() })
-    .where(eq(articles.id, id))
-    .returning();
-  return result[0];
+    .where(eq(articles.id, id));
+  // .returning() is unreliable on Turso/libSQL in serverless — SELECT instead
+  const rows = await db.select().from(articles).where(eq(articles.id, id)).limit(1);
+  return rows[0];
 }
 
 export async function deleteArticle(id: number) {
-  return db
+  await db
     .update(articles)
     .set({ status: "deleted", updated_at: new Date().toISOString() })
-    .where(eq(articles.id, id))
-    .returning();
+    .where(eq(articles.id, id));
+  // .returning() is unreliable on Turso/libSQL in serverless — SELECT instead
+  const rows = await db.select().from(articles).where(eq(articles.id, id)).limit(1);
+  return rows;
 }
