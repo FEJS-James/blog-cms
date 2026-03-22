@@ -23,6 +23,7 @@ export async function getBlogStats() {
       last_published: sql<string>`max(case when ${articles.status} = 'published' then ${articles.publish_date} end)`,
     })
     .from(articles)
+    .where(ne(articles.status, "deleted"))
     .groupBy(articles.blog_id);
 
   return stats;
