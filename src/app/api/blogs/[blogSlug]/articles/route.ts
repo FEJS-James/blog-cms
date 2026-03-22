@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { eq, and, ne, sql, desc, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -111,8 +112,15 @@ export async function POST(
 
   const created = createdRows[0];
 
-  // Fire-and-forget — don't block the response
-  deployBlog(blogSlug).catch((err) => console.error("[deploy] Auto-deploy failed:", err.message));
+  // Schedule deploy to run after the response is sent (Vercel-safe)
+  after(async () => {
+    try {
+      await deployBlog(blogSlug);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[deploy] Auto-deploy failed:", message);
+    }
+  });
 
   return NextResponse.json(
     { success: true, data: formatArticle(created) },
