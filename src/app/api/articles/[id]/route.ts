@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getArticleById, updateArticle, deleteArticle } from "@/lib/queries";
 import { authenticateRequest } from "@/lib/auth";
@@ -55,10 +56,17 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
     }
 
-    // Fire-and-forget — don't block the response
+    // Schedule deploy to run after the response is sent (Vercel-safe)
     const blogSlug = await getBlogSlugById(article.blog_id);
     if (blogSlug) {
-      deployBlog(blogSlug).catch((err) => console.error("[deploy] Auto-deploy failed:", err.message));
+      after(async () => {
+        try {
+          await deployBlog(blogSlug);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error("[deploy] Auto-deploy failed:", message);
+        }
+      });
     }
 
     return NextResponse.json(article);
@@ -86,10 +94,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
     }
 
-    // Fire-and-forget — don't block the response
+    // Schedule deploy to run after the response is sent (Vercel-safe)
     const blogSlug = await getBlogSlugById(article.blog_id);
     if (blogSlug) {
-      deployBlog(blogSlug).catch((err) => console.error("[deploy] Auto-deploy failed:", err.message));
+      after(async () => {
+        try {
+          await deployBlog(blogSlug);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error("[deploy] Auto-deploy failed:", message);
+        }
+      });
     }
 
     return NextResponse.json(article);
@@ -121,10 +136,17 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
     }
 
-    // Fire-and-forget — don't block the response
+    // Schedule deploy to run after the response is sent (Vercel-safe)
     const blogSlug = await getBlogSlugById(existing.blog_id);
     if (blogSlug) {
-      deployBlog(blogSlug).catch((err) => console.error("[deploy] Auto-deploy failed:", err.message));
+      after(async () => {
+        try {
+          await deployBlog(blogSlug);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error("[deploy] Auto-deploy failed:", message);
+        }
+      });
     }
 
     return NextResponse.json({ success: true });
