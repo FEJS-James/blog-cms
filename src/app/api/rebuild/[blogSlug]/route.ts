@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/auth";
-import { triggerCloudflareRebuild } from "@/lib/cloudflare";
+import { deployBlog } from "@/lib/deploy";
 
-// ── POST /api/rebuild/[blogSlug] — Manually trigger a Cloudflare Pages rebuild ─
+// ── POST /api/rebuild/[blogSlug] — Full CMS → GitHub → CF Pages deploy pipeline ─
 
 export async function POST(
   request: NextRequest,
@@ -13,11 +13,36 @@ export async function POST(
 
   const { blogSlug } = await params;
 
-  // Fire-and-forget: trigger Cloudflare Pages rebuild
-  triggerCloudflareRebuild(blogSlug);
+  try {
+    const result = await deployBlog(blogSlug);
 
-  return NextResponse.json({
-    success: true,
-    message: `Rebuild triggered for "${blogSlug}"`,
-  });
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: result.error,
+          blogSlug: result.blogSlug,
+        },
+        { status: 422 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      blogSlug: result.blogSlug,
+      articlesDeployed: result.articlesDeployed,
+      commitHash: result.commitHash,
+      details: result.details,
+    });
+  } catch (err: unknown) {
+    const error = err as Error;
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || "Internal deployment error",
+        blogSlug,
+      },
+      { status: 500 }
+    );
+  }
 }
