@@ -47,8 +47,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await request.json();
+    const { id: _id, created_at, updated_at, blog_id, ...safeBody } = body;
 
-    const article = await updateArticle(Number(id), body);
+    const article = await updateArticle(Number(id), safeBody);
 
     if (!article) {
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
@@ -77,8 +78,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await request.json();
+    const { id: _id, created_at, updated_at, blog_id, ...safeBody } = body;
 
-    const article = await updateArticle(Number(id), body);
+    const article = await updateArticle(Number(id), safeBody);
 
     if (!article) {
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
