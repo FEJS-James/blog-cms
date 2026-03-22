@@ -2,16 +2,16 @@
  * Blog deployment pipeline.
  *
  * Fetches published articles from the CMS database, generates .md files
- * with Astro-compatible frontmatter, clones/pulls the blog's GitHub repo,
- * commits the changes, and pushes to trigger a Cloudflare Pages rebuild.
+ * with Astro-compatible frontmatter, and pushes them to the blog's GitHub
+ * repo via the GitHub REST API (Trees/Commits) to trigger a Cloudflare
+ * Pages rebuild.
+ *
+ * No git CLI required — works in serverless environments (Vercel, etc.).
  */
 
 import { db } from "./db";
 import { articles, blogs } from "./schema";
 import { eq, and } from "drizzle-orm";
-import { execFileSync } from "child_process";
-import { existsSync, mkdirSync, writeFileSync, readdirSync, unlinkSync, rmSync } from "fs";
-import { join } from "path";
 
 // ── Blog slug → GitHub repo mapping ────────────────────────────────────────────
 
@@ -41,6 +41,14 @@ interface PublishedArticle {
   tags: string | null;
 }
 
+interface GitHubTreeEntry {
+  path: string;
+  mode: "100644" | "100755" | "040000" | "160000" | "120000";
+  type: "blob" | "tree" | "commit";
+  sha: string | null;
+  size?: number;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function getGitHubPAT(): string {
@@ -50,12 +58,24 @@ function getGitHubPAT(): string {
 }
 
 /**
+ * Sanitize strings to remove embedded PATs from URLs/messages.
+ */
+const sanitize = (s: string) => s.replace(/https:\/\/[^@]*@/g, "https://***@");
+
+/**
  * Format a date string into "Mon DD YYYY" format (e.g. "Mar 15 2026").
  * If the date is already in that format, returns it as-is.
  * Falls back to ISO date if parsing fails.
  */
 function formatPubDate(dateStr: string | null): string {
-  if (!dateStr) return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }).replace(",", "");
+  if (!dateStr)
+    return new Date()
+      .toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+      .replace(",", "");
 
   // Already in "Mon DD YYYY" format (e.g. "Mar 15 2026")
   if (/^[A-Z][a-z]{2}\s+\d{1,2}\s+\d{4}$/.test(dateStr)) return dateStr;
@@ -64,7 +84,10 @@ function formatPubDate(dateStr: string | null): string {
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) return dateStr;
 
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const months = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
   return `${months[date.getUTCMonth()]} ${date.getUTCDate()} ${date.getUTCFullYear()}`;
 }
 
@@ -85,7 +108,6 @@ function parseTags(tagsJson: string | null): string[] {
  * Escape a YAML string value — wrap in quotes and escape inner quotes.
  */
 function yamlString(value: string): string {
-  // Escape backslashes first, then double quotes
   const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   return `"${escaped}"`;
 }
@@ -109,29 +131,61 @@ function generateMarkdown(article: PublishedArticle): string {
   return lines.join("\n");
 }
 
-/**
- * Sanitize strings to remove embedded PATs from git URLs.
- */
-const sanitize = (s: string) => s.replace(/https:\/\/[^@]*@/g, "https://***@");
+// ── GitHub API helpers ─────────────────────────────────────────────────────────
+
+const GITHUB_API = "https://api.github.com";
 
 /**
- * Run an executable with arguments in a given directory, returning stdout.
- * Uses execFileSync to avoid shell injection. Sanitizes errors to prevent PAT leaks.
+ * Make an authenticated request to the GitHub API.
+ * Handles rate limiting with retry and throws on non-2xx responses.
  */
-function runFile(bin: string, args: string[], cwd: string): string {
-  try {
-    return execFileSync(bin, args, {
-      cwd,
-      encoding: "utf-8",
-      timeout: 120_000, // 2 minute timeout
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-  } catch (err: unknown) {
-    const error = err as { stderr?: string; message?: string };
+async function githubRequest<T>(
+  method: string,
+  path: string,
+  pat: string,
+  body?: unknown,
+  retries = 2
+): Promise<T> {
+  const url = `${GITHUB_API}${path}`;
+  const headers: Record<string, string> = {
+    Authorization: `token ${pat}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  if (body) headers["Content-Type"] = "application/json";
+
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  // Handle rate limiting
+  if (res.status === 403 || res.status === 429) {
+    const retryAfter = res.headers.get("retry-after");
+    const resetHeader = res.headers.get("x-ratelimit-reset");
+    if (retries > 0) {
+      let waitMs = 5000; // default 5s
+      if (retryAfter) {
+        waitMs = parseInt(retryAfter, 10) * 1000;
+      } else if (resetHeader) {
+        waitMs = Math.max(0, parseInt(resetHeader, 10) * 1000 - Date.now()) + 1000;
+      }
+      // Cap wait at 60 seconds
+      waitMs = Math.min(waitMs, 60_000);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      return githubRequest<T>(method, path, pat, body, retries - 1);
+    }
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
     throw new Error(
-      sanitize(`Command failed: ${bin} ${args.join(" ")}\n${error.stderr || error.message || "Unknown error"}`)
+      sanitize(`GitHub API ${method} ${path} failed (${res.status}): ${text}`)
     );
   }
+
+  return res.json() as Promise<T>;
 }
 
 // ── Main deploy function ───────────────────────────────────────────────────────
@@ -147,9 +201,7 @@ export async function deployBlog(blogSlug: string): Promise<DeployResult> {
     };
   }
 
-  const tmpDir = `/tmp/blog-deploy-${blogSlug}`;
   const pat = getGitHubPAT();
-  const repoUrl = `https://x-access-token:${pat}@github.com/${repoPath}.git`;
 
   try {
     // ── 1. Fetch blog from DB ──────────────────────────────────────────────
@@ -192,55 +244,105 @@ export async function deployBlog(blogSlug: string): Promise<DeployResult> {
       };
     }
 
-    // ── 3. Clone or pull the repo ──────────────────────────────────────────
-    if (existsSync(join(tmpDir, ".git"))) {
-      // Repo already cloned — reset and pull
-      runFile("git", ["fetch", "origin"], tmpDir);
-      runFile("git", ["checkout", "main"], tmpDir);
-      runFile("git", ["reset", "--hard", "origin/main"], tmpDir);
-    } else {
-      // Fresh clone
-      if (existsSync(tmpDir)) {
-        // Remove stale non-git directory
-        rmSync(tmpDir, { recursive: true, force: true });
+    // ── 3. Get the current commit SHA of the main branch ───────────────────
+    const refData = await githubRequest<{
+      object: { sha: string };
+    }>("GET", `/repos/${repoPath}/git/ref/heads/main`, pat);
+    const latestCommitSha = refData.object.sha;
+
+    // ── 4. Get the current commit's tree SHA ───────────────────────────────
+    const commitData = await githubRequest<{
+      tree: { sha: string };
+    }>("GET", `/repos/${repoPath}/git/commits/${latestCommitSha}`, pat);
+    const baseTreeSha = commitData.tree.sha;
+
+    // ── 5. Get the full tree recursively ───────────────────────────────────
+    const fullTree = await githubRequest<{
+      sha: string;
+      tree: GitHubTreeEntry[];
+      truncated: boolean;
+    }>("GET", `/repos/${repoPath}/git/trees/${baseTreeSha}?recursive=1`, pat);
+
+    if (fullTree.truncated) {
+      throw new Error(
+        "Repository tree is too large for recursive listing. " +
+        "This should not happen for a blog repo."
+      );
+    }
+
+    // ── 6. Build the new tree ──────────────────────────────────────────────
+    // Keep all entries EXCEPT those under src/content/blog/*.md
+    const blogPrefix = "src/content/blog/";
+    const preservedEntries = fullTree.tree.filter((entry) => {
+      // Remove all .md files directly under src/content/blog/
+      if (
+        entry.path.startsWith(blogPrefix) &&
+        entry.path.endsWith(".md") &&
+        !entry.path.slice(blogPrefix.length).includes("/")
+      ) {
+        return false;
       }
-      mkdirSync(tmpDir, { recursive: true });
-      runFile("git", ["clone", repoUrl, tmpDir], "/tmp");
-    }
+      // Also filter out tree entries — we'll rebuild from the full list
+      // Keep only blobs and other non-tree entries
+      return entry.type !== "tree";
+    });
 
-    // Configure git user for commits
-    runFile("git", ["config", "user.email", "cms@blog-cms.vercel.app"], tmpDir);
-    runFile("git", ["config", "user.name", "Blog CMS"], tmpDir);
+    // Create blobs for each published article and build new tree entries
+    const newBlogEntries: Array<{
+      path: string;
+      mode: "100644";
+      type: "blob";
+      sha: string;
+    }> = [];
 
-    // ── 4. Write .md files to src/content/blog/ ────────────────────────────
-    const blogContentDir = join(tmpDir, "src", "content", "blog");
-    mkdirSync(blogContentDir, { recursive: true });
-
-    // Clear existing .md files so deleted/unpublished articles are removed
-    const existingFiles = readdirSync(blogContentDir).filter((f) =>
-      f.endsWith(".md")
-    );
-    for (const file of existingFiles) {
-      unlinkSync(join(blogContentDir, file));
-    }
-
-    // Write new .md files
     for (const article of publishedArticles) {
-      // Validate slug to prevent path traversal or unexpected filenames
+      // Validate slug to prevent path traversal
       const safeSlug = article.slug.replace(/[^a-z0-9-]/g, "");
-      if (safeSlug !== article.slug) throw new Error(`Invalid slug: ${article.slug}`);
+      if (safeSlug !== article.slug)
+        throw new Error(`Invalid slug: ${article.slug}`);
 
-      const filename = `${safeSlug}.md`;
       const content = generateMarkdown(article);
-      writeFileSync(join(blogContentDir, filename), content, "utf-8");
+
+      // Create a blob via the GitHub API
+      const blobData = await githubRequest<{ sha: string }>(
+        "POST",
+        `/repos/${repoPath}/git/blobs`,
+        pat,
+        {
+          content: Buffer.from(content, "utf-8").toString("base64"),
+          encoding: "base64",
+        }
+      );
+
+      newBlogEntries.push({
+        path: `${blogPrefix}${safeSlug}.md`,
+        mode: "100644",
+        type: "blob",
+        sha: blobData.sha,
+      });
     }
 
-    // ── 5. Git commit and push ─────────────────────────────────────────────
-    runFile("git", ["add", "-A"], tmpDir);
+    // Merge preserved entries with new blog entries
+    const treeEntries = [
+      ...preservedEntries.map((e) => ({
+        path: e.path,
+        mode: e.mode,
+        type: e.type,
+        sha: e.sha,
+      })),
+      ...newBlogEntries,
+    ];
 
-    // Check if there are actual changes to commit
-    const status = runFile("git", ["status", "--porcelain"], tmpDir);
-    if (!status) {
+    // ── 7. Create the new tree ─────────────────────────────────────────────
+    const newTree = await githubRequest<{ sha: string }>(
+      "POST",
+      `/repos/${repoPath}/git/trees`,
+      pat,
+      { tree: treeEntries }
+    );
+
+    // If tree SHA is unchanged, no changes needed
+    if (newTree.sha === baseTreeSha) {
       return {
         success: true,
         blogSlug,
@@ -249,21 +351,41 @@ export async function deployBlog(blogSlug: string): Promise<DeployResult> {
       };
     }
 
+    // ── 8. Create a new commit ─────────────────────────────────────────────
     const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
     const commitMsg = `sync: ${publishedArticles.length} articles from CMS (${timestamp})`;
-    runFile("git", ["commit", "-m", commitMsg], tmpDir);
 
-    // Push to main
-    runFile("git", ["push", "origin", "main"], tmpDir);
+    const newCommit = await githubRequest<{ sha: string }>(
+      "POST",
+      `/repos/${repoPath}/git/commits`,
+      pat,
+      {
+        message: commitMsg,
+        tree: newTree.sha,
+        parents: [latestCommitSha],
+        author: {
+          name: "Blog CMS",
+          email: "cms@blog-cms.vercel.app",
+          date: new Date().toISOString(),
+        },
+      }
+    );
 
-    // Get the commit hash
-    const commitHash = runFile("git", ["rev-parse", "--short", "HEAD"], tmpDir);
+    // ── 9. Update the ref to point to the new commit ───────────────────────
+    await githubRequest(
+      "PATCH",
+      `/repos/${repoPath}/git/refs/heads/main`,
+      pat,
+      { sha: newCommit.sha }
+    );
+
+    const shortHash = newCommit.sha.slice(0, 7);
 
     return {
       success: true,
       blogSlug,
       articlesDeployed: publishedArticles.length,
-      commitHash,
+      commitHash: shortHash,
       details: `Pushed ${publishedArticles.length} articles to ${repoPath}. Cloudflare Pages will auto-deploy.`,
     };
   } catch (err: unknown) {
@@ -274,14 +396,5 @@ export async function deployBlog(blogSlug: string): Promise<DeployResult> {
       articlesDeployed: 0,
       error: sanitize(error.message || "Unknown deployment error"),
     };
-  } finally {
-    // Cleanup temp directory to prevent PAT leaking via .git/config
-    try {
-      if (existsSync(tmpDir)) {
-        rmSync(tmpDir, { recursive: true, force: true });
-      }
-    } catch {
-      // Best-effort cleanup — don't mask the original error
-    }
   }
 }
