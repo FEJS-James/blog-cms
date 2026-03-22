@@ -7,7 +7,7 @@ import {
   createArticleSchema,
   listArticlesQuerySchema,
 } from "@/lib/validation";
-import { triggerCloudflareRebuild } from "@/lib/cloudflare";
+import { deployBlog } from "@/lib/deploy";
 
 // ── POST /api/blogs/[blogSlug]/articles — Create article ───────────────────────
 
@@ -111,8 +111,8 @@ export async function POST(
 
   const created = createdRows[0];
 
-  // Fire-and-forget: trigger Cloudflare Pages rebuild
-  triggerCloudflareRebuild(blogSlug);
+  // Fire-and-forget — don't block the response
+  deployBlog(blogSlug).catch((err) => console.error("[deploy] Auto-deploy failed:", err.message));
 
   return NextResponse.json(
     { success: true, data: formatArticle(created) },
