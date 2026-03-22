@@ -4,7 +4,7 @@ import { authenticateRequest } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { blogs } from "@/lib/schema";
 import { eq } from "drizzle-orm";
-import { triggerCloudflareRebuild } from "@/lib/cloudflare";
+import { deployBlog } from "@/lib/deploy";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -55,10 +55,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
     }
 
-    // Fire-and-forget: trigger Cloudflare Pages rebuild
+    // Fire-and-forget — don't block the response
     const blogSlug = await getBlogSlugById(article.blog_id);
     if (blogSlug) {
-      triggerCloudflareRebuild(blogSlug);
+      deployBlog(blogSlug).catch((err) => console.error("[deploy] Auto-deploy failed:", err.message));
     }
 
     return NextResponse.json(article);
@@ -86,10 +86,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
     }
 
-    // Fire-and-forget: trigger Cloudflare Pages rebuild
+    // Fire-and-forget — don't block the response
     const blogSlug = await getBlogSlugById(article.blog_id);
     if (blogSlug) {
-      triggerCloudflareRebuild(blogSlug);
+      deployBlog(blogSlug).catch((err) => console.error("[deploy] Auto-deploy failed:", err.message));
     }
 
     return NextResponse.json(article);
@@ -121,10 +121,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
     }
 
-    // Fire-and-forget: trigger Cloudflare Pages rebuild
+    // Fire-and-forget — don't block the response
     const blogSlug = await getBlogSlugById(existing.blog_id);
     if (blogSlug) {
-      triggerCloudflareRebuild(blogSlug);
+      deployBlog(blogSlug).catch((err) => console.error("[deploy] Auto-deploy failed:", err.message));
     }
 
     return NextResponse.json({ success: true });
