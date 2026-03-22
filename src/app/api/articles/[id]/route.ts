@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getArticleById, updateArticle, deleteArticle } from "@/lib/queries";
+import { authenticateRequest } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { blogs } from "@/lib/schema";
 import { eq } from "drizzle-orm";
@@ -40,6 +41,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
+  const authError = authenticateRequest(request);
+  if (authError) return authError;
+
   try {
     const { id } = await params;
     const body = await request.json();
@@ -66,7 +70,40 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   }
 }
 
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  const authError = authenticateRequest(request);
+  if (authError) return authError;
+
+  try {
+    const { id } = await params;
+    const body = await request.json();
+
+    const article = await updateArticle(Number(id), body);
+
+    if (!article) {
+      return NextResponse.json({ error: "Article not found" }, { status: 404 });
+    }
+
+    // Fire-and-forget: trigger Cloudflare Pages rebuild
+    const blogSlug = await getBlogSlugById(article.blog_id);
+    if (blogSlug) {
+      triggerCloudflareRebuild(blogSlug);
+    }
+
+    return NextResponse.json(article);
+  } catch (error) {
+    console.error("PATCH /api/articles/[id] error:", error);
+    return NextResponse.json(
+      { error: "Failed to update article" },
+      { status: 500 }
+    );
+  }
+}
+
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  const authError = authenticateRequest(request);
+  if (authError) return authError;
+
   try {
     const { id } = await params;
 
