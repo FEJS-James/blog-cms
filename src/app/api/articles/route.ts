@@ -1,6 +1,11 @@
+import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getArticles, createArticle } from "@/lib/queries";
 import { authenticateRequest } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { blogs } from "@/lib/schema";
+import { eq } from "drizzle-orm";
+import { deployBlog } from "@/lib/deploy";
 
 export async function GET(request: NextRequest) {
   try {
@@ -103,6 +108,27 @@ export async function POST(request: NextRequest) {
     if (reading_time_minutes !== undefined) data.reading_time_minutes = reading_time_minutes as number;
 
     const article = await createArticle(data);
+
+    // Auto-rebuild blog when a published article is created
+    if (data.status === "published") {
+      const blogRow = await db
+        .select({ slug: blogs.slug })
+        .from(blogs)
+        .where(eq(blogs.id, data.blog_id))
+        .limit(1);
+      const blogSlug = blogRow[0]?.slug;
+      if (blogSlug) {
+        after(async () => {
+          try {
+            const result = await deployBlog(blogSlug);
+            console.log("[deploy] Auto-rebuild after article creation:", result);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error("[deploy] Auto-rebuild failed:", message);
+          }
+        });
+      }
+    }
 
     return NextResponse.json(article, { status: 201 });
   } catch (error: unknown) {

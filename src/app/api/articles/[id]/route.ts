@@ -56,17 +56,20 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
     }
 
-    // Schedule deploy to run after the response is sent (Vercel-safe)
-    const blogSlug = await getBlogSlugById(article.blog_id);
-    if (blogSlug) {
-      after(async () => {
-        try {
-          await deployBlog(blogSlug);
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error("[deploy] Auto-deploy failed:", message);
-        }
-      });
+    // Auto-rebuild only when the article is published
+    if (article.status === "published") {
+      const blogSlug = await getBlogSlugById(article.blog_id);
+      if (blogSlug) {
+        after(async () => {
+          try {
+            const result = await deployBlog(blogSlug);
+            console.log("[deploy] Auto-rebuild after article update:", result);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error("[deploy] Auto-deploy failed:", message);
+          }
+        });
+      }
     }
 
     return NextResponse.json(article);
@@ -94,17 +97,20 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
     }
 
-    // Schedule deploy to run after the response is sent (Vercel-safe)
-    const blogSlug = await getBlogSlugById(article.blog_id);
-    if (blogSlug) {
-      after(async () => {
-        try {
-          await deployBlog(blogSlug);
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error("[deploy] Auto-deploy failed:", message);
-        }
-      });
+    // Auto-rebuild only when the article is published
+    if (article.status === "published") {
+      const blogSlug = await getBlogSlugById(article.blog_id);
+      if (blogSlug) {
+        after(async () => {
+          try {
+            const result = await deployBlog(blogSlug);
+            console.log("[deploy] Auto-rebuild after article update:", result);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error("[deploy] Auto-deploy failed:", message);
+          }
+        });
+      }
     }
 
     return NextResponse.json(article);
