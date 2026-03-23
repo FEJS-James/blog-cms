@@ -125,6 +125,7 @@ export async function createArticle(data: {
   slug: string;
   content?: string;
   hero_image?: string;
+  author?: string;
   excerpt?: string;
   meta_description?: string;
   status?: string;
@@ -135,6 +136,19 @@ export async function createArticle(data: {
   word_count?: number;
   reading_time_minutes?: number;
 }) {
+  // Check for duplicate slug within the same blog
+  const existing = await db
+    .select({ id: articles.id })
+    .from(articles)
+    .where(and(eq(articles.blog_id, data.blog_id), eq(articles.slug, data.slug)))
+    .limit(1);
+
+  if (existing.length > 0) {
+    const err = new Error(`Article with slug "${data.slug}" already exists in blog ${data.blog_id}`);
+    (err as Error & { code: string }).code = "DUPLICATE_SLUG";
+    throw err;
+  }
+
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
   // Explicitly set all fields — Drizzle schema defaults like "(datetime('now'))"
   // are sent as literal strings to Turso, not as SQL expressions
@@ -144,7 +158,7 @@ export async function createArticle(data: {
     slug: data.slug,
     content: data.content ?? null,
     hero_image: data.hero_image ?? null,
-    author: null,
+    author: data.author ?? null,
     excerpt: data.excerpt ?? null,
     meta_description: data.meta_description ?? null,
     status: data.status ?? "draft",
