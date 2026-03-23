@@ -135,11 +135,12 @@ function averageSentenceLength(text) {
 
 function hasLinks(body) {
   // Markdown links [text](url) — exclude images which start with !
-  return /(?<!!)\[[^\]]+\]\([^)]+\)/.test(body);
+  // Also match HTML <a href="..."> tags (common in Astro posts)
+  return /(?<!!)\[[^\]]+\]\([^)]+\)/.test(body) || /<a\s[^>]*href\s*=/i.test(body);
 }
 
 function hasH2(body) {
-  return /^##\s+/m.test(body);
+  return /^##\s+/m.test(body) || /<h2[\s>]/i.test(body);
 }
 
 function slugFromFilename(filepath) {
